@@ -50,26 +50,12 @@ on:
         default: false
         type: boolean
 
-      enable_kpm:
-        description: "启用KPM"
-        required: false
-        default: true
-        type: boolean
-      
-      enable_susfs:
-        description: "启用SUSFS"
-        required: true
-        default: true
-        type: boolean
-
       enable_signed:
         description: "使用AOSP密钥签名boot"
         required: false
         default: true
         type: boolean
 
-      
-       
 jobs:
   build:
     name: Build_${{ github.event.inputs.kernel_version }}
@@ -83,8 +69,6 @@ jobs:
       ENABLE_ADIOS: ${{ github.event.inputs.enable_Adios }}
       ENABLE_DROIDSPACES: ${{ github.event.inputs.enable_droidspaces }}
       ENABLE_BBG: ${{ github.event.inputs.enable_bbg }}
-      ENABLE_KPM: ${{ github.event.inputs.enable_kpm }}
-      ENABLE_SUSFS: ${{ github.event.inputs.enable_susfs }}
       ENABLE_SIGNED: ${{ github.event.inputs.enable_signed }}
     steps:
       - uses: actions/checkout@v5
@@ -192,18 +176,15 @@ jobs:
           echo "所有源码及llvm-Clang18工具链初始化完成！"
           echo "正在去除 ABI 保护 & 去除 dirty 后缀..."
           rm common/android/abi_gki_protected_exports_* || true
-          # if [[ "${{ env.KERNEL_VERSION }}" != "6.6.102" ]]; then
-            for f in common/scripts/setlocalversion; do
-              sed -i 's/ -dirty//g' "$f"
-              sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"
-            done
-          # fi
+          for f in common/scripts/setlocalversion; do
+            sed -i 's/ -dirty//g' "$f"
+            sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"
+          done
 
       - name: 🛠 Set ccache DIR(配置ccache目录)
         run: |
           echo "CCACHE_DIR=$HOME/.ccache_${{ env.KERNEL_VERSION }}" >> $GITHUB_ENV
           echo "CCACHE_MAXSIZE=10G" >> $GITHUB_ENV
-          # 根据影响源码的功能开关生成缓存变体后缀，避免不同变体互相污染
           CACHE_VARIANT=""
           if [ "${{ env.ENABLE_DROIDSPACES }}" = "true" ]; then
             CACHE_VARIANT="${CACHE_VARIANT}-ds"
@@ -242,10 +223,8 @@ jobs:
             let selected = null;
 
             const escape_regex = (value) => value.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&');
-            // 优先精确匹配带变体的资产，其次匹配不带变体的
             const variantExactName = `ccache-${deviceName}${cacheVariant}.tar.zst`;
             const plainExactName = `ccache-${deviceName}.tar.zst`;
-            // 有变体时仅匹配变体缓存，不降级到非变体（不同变体的缓存无法互相命中）
             const priorityAssets = cacheVariant ? [variantExactName] : [plainExactName];
             const legacyAssetPattern = new RegExp(`^ccache-(.+-)?${escape_regex(deviceName)}(-[0-9]+)?\\.tar\\.zst$`);
 
@@ -335,7 +314,6 @@ jobs:
       
       - name: 📥 Init ccache (初始化配置ccache)
         run: |
-          # 设置ccache环境变量
           export CCACHE_COMPILERCHECK="none"
           export CCACHE_BASEDIR="${{ github.workspace }}"
           export CCACHE_NOHASHDIR="true"
@@ -343,19 +321,15 @@ jobs:
           export CCACHE_DIR="${{ env.CCACHE_DIR }}"
           export CCACHE_MAXSIZE="${{ env.CCACHE_MAXSIZE }}"
           
-          # 确保ccache目录存在
           mkdir -p "$CCACHE_DIR"
           
-          # 每次运行都重新配置缓存大小
           echo "配置ccache缓存大小为: $CCACHE_MAXSIZE"
           ccache -M "$CCACHE_MAXSIZE"
           ccache -o compression=true
           
-          # 显示初始缓存状态
           echo "ccache初始状态:"
           ccache -s
           
-          # 如果缓存恢复命中，显示详细信息
           if [ -n "${{ steps.ccache-restore.outputs.cache-matched-key }}" ]; then
             echo "ccache缓存命中详情: ${{ steps.ccache-restore.outputs.cache-matched-key }}"
             ccache -sv
@@ -444,37 +418,6 @@ jobs:
           echo "CONFIG_BBG=y" >> ./common/arch/arm64/configs/gki_defconfig
           sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/lockdown/lockdown,baseband_guard/ } }' ./common/security/Kconfig
 
-      
-      - name: ⚙️ Set ReSukiSU (设置ReSukiSU)
-        run: |
-          cd kernel_workspace
-          echo "正在配置ReSukiSU..."
-          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s dev
-          cd ./KernelSU 
-          KSU_VERSION=$(expr $(git rev-list --count origin/dev 2>/dev/null) + 30700 2>/dev/null || echo 114514)
-          echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
-          echo "ksuver=$KSU_VERSION" >> $GITHUB_OUTPUT
-
-      - name: 🔧 Set up SUSFS (配置 SUSFS)
-        if: ${{ env.ENABLE_SUSFS == 'true' }}
-        run: |
-          cd kernel_workspace
-          git clone --depth=1 https://github.com/cctv18/susfs4oki.git susfs4ksu -b oki-android15-6.6
-          wget https://raw.githubusercontent.com/cctv18/oppo_oplus_realme_sm8750/main/other_patch/69_hide_stuff.patch -O ./common/69_hide_stuff.patch
-          cp ./susfs4ksu/kernel_patches/50_add_susfs_in_gki-android15-6.6.patch ./common/
-          cp ./susfs4ksu/kernel_patches/fs/* ./common/fs/
-          cp ./susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
-          cd ./common
-          patch -p1 < 50_add_susfs_in_gki-android15-6.6.patch || true
-          patch -p1 -N -F 3 < 69_hide_stuff.patch || true
-          case "${{ env.KERNEL_VERSION }}" in
-            6.6.56)
-              echo "[INFO] 当前构建内核版本为6.6.56，正在修复 undeclared identifier 'vma' 编译错误"
-              cd ./fs/proc
-              sed -i 's/vma = find_vma(mm, start_vaddr);/struct vm_area_struct *vma = find_vma(mm, start_vaddr);/' task_mmu.c
-              ;;
-          esac
-
       - name: 🔧 Apply Droidspaces SYSVIPC kABI fix (应用 Droidspaces SYSVIPC kABI 修复)
         if: ${{ env.ENABLE_DROIDSPACES == 'true' }}
         working-directory: kernel_workspace/common
@@ -554,14 +497,12 @@ jobs:
               fi
             }
 
-            # ---- 必要配置 (Droidspaces 容器必须) ----
             enable_config CONFIG_SYSVIPC
             enable_config CONFIG_POSIX_MQUEUE
             enable_config CONFIG_IPC_NS
             enable_config CONFIG_PID_NS
             enable_config CONFIG_DEVTMPFS
 
-            # ---- 网络相关配置 (Docker/NAT 模式, 按 Kconfig 实际存在启用) ----
             enable_config_if_defined CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
             enable_config_if_defined CONFIG_NETFILTER_XT_TARGET_LOG
             enable_config_if_defined CONFIG_NETFILTER_XT_MATCH_RECENT
@@ -576,40 +517,12 @@ jobs:
 
             echo "==> Droidspaces 内核配置完成"
           fi
-
-          # ==================== KSU 配置 ====================
-          echo "CONFIG_KSU=y" >> "$DEFCONFIG"
-          echo "CONFIG_KPM=y" >> "$DEFCONFIG"
-
-          echo 'CONFIG_KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%-Re-TG@qdykernel"' >> "$DEFCONFIG"
-
-          # ==================== SUSFS 配置 ====================
-          if [ "${{ env.ENABLE_SUSFS }}" == 'true' ];then
-            echo "CONFIG_KSU_SUSFS=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> "$DEFCONFIG"
-            echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> "$DEFCONFIG"
-          else
-            echo "未启用SUSFS 跳过SUSFS配置"
-          fi
           
           echo "CONFIG_TMPFS_XATTR=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_TMPFS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
 
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> ./common/arch/arm64/configs/gki_defconfig
           
-          #Remove check_defconfig
           sudo sed -i 's/check_defconfig//' ./common/build.config.gki
 
       - name: 🔧 Set Kernel name (写入内核名称)
@@ -658,27 +571,24 @@ jobs:
           echo "FAKETIME=$FAKETIME" >> $GITHUB_ENV
           SO_DIR=$(pwd)
           export PRELOAD_LIBS="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
-          #创建 CC (编译器) 包装器
           echo '#!/bin/bash' > cc-wrapper
           echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> cc-wrapper
           echo 'export FAKESTAT="'$FAKESTAT'"' >> cc-wrapper
           echo 'export FAKETIME="'$FAKETIME'"' >> cc-wrapper
           echo 'ccache clang "$@"' >> cc-wrapper
-          #创建 LD (链接器) 包装器
           echo '#!/bin/bash' > ld-wrapper
           echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> ld-wrapper
           echo 'export FAKESTAT="'$FAKESTAT'"' >> ld-wrapper
           echo 'export FAKETIME="'$FAKETIME'"' >> ld-wrapper
           echo 'ld.lld "$@"' >> ld-wrapper
           
-          # 测试时间劫持测试是否正常工作
           echo "--- [Wrapper Test] 正在创建通用的时间劫持测试脚本 ---"
           echo '#!/bin/bash' > test-wrapper.sh
           echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> test-wrapper.sh
           echo 'export FAKESTAT="'$FAKESTAT'"' >> test-wrapper.sh
           echo 'export FAKETIME="'$FAKETIME'"' >> test-wrapper.sh
           echo 'echo ">>> Wrapper 内部环境检查完毕."' >> test-wrapper.sh
-          echo 'exec "$@"' >> test-wrapper.sh # 执行所有传入的参数
+          echo 'exec "$@"' >> test-wrapper.sh
           chmod +x test-wrapper.sh
           echo "--- [Wrapper Test] 正在测试 (date) 命令 ---"
           ./test-wrapper.sh date
@@ -687,12 +597,11 @@ jobs:
           echo "--- [Wrapper Test] 测试完毕 ---"
           chmod +x cc-wrapper ld-wrapper
           echo "--- 编译前环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
-          echo "--- 编译前环境文件时间戳: ---"
+          echo "--- [Wrapper Test] 正在测试 (stat) 命令 ---"
           LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
 
           export KBUILD_BUILD_TIMESTAMP="${KERNEL_TIME}"
           
-          #在构建内核的同时清除不必要的.NET, Android NDK, Haskell, CodeQL运行库，清理空间且不阻塞后续步骤运行
           sudo rm -rf /usr/share/dotnet &
           sudo rm -rf /usr/local/lib/android &
           sudo rm -rf /opt/ghc &
@@ -700,7 +609,6 @@ jobs:
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="ccache clang" LD="ld.lld" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error gki_defconfig &&
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" HOSTLD=ld.lld O=out KCFLAGS+=-O2 KCFLAGS+=-Wno-error Image
           
-          # 编译后时间劫持二次校验
           echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
           echo "--- 编译后环境文件时间戳: ---"
           LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
@@ -773,17 +681,6 @@ jobs:
             }
 
             core.info(`旧缓存清理完成，共删除 ${deleted} 个缓存`);
-
-      - name: 📦 Apply KPM and patch the kernel (应用KPM并修补内核)
-        if: ${{ env.ENABLE_KPM == 'true' }}
-        run: |
-          echo "正在应用KPM并修补内核..."
-          cd kernel_workspace/common/out/arch/arm64/boot
-          curl -LO https://github.com/ShirkNeko/SukiSU_KernelPatch_patch/releases/download/0.12.2/patch_linux
-          chmod +x patch_linux
-          ./patch_linux
-          rm -f Image
-          mv oImage Image
           
       - name: 📦 ReName Image  (修改镜像名)
         run: |
@@ -817,7 +714,7 @@ jobs:
         if: ${{ env.ENABLE_SIGNED == 'true' }}
         uses: actions/upload-artifact@v5
         with:
-         name: Boot_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_ReSukiSU_AOSP_Signed
+         name: Boot_${{ env.KERNEL_VERSION }}_AOSP_Signed
          path: kernel_workspace/boot_avb_tool/AOSP-Testkey-BootSigner-main/boot.img
 
   upload_rekernel:
