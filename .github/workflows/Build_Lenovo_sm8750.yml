@@ -292,13 +292,20 @@ jobs:
             exit 1
           fi
           if ! patch -p1 --forward < "$KABI_PATCH"; then
-            echo "::warning::SYSVIPC kABI 补丁应用失败，可能已应用或上下文不匹配"
+            echo "::warning::SYSVIPC kABI 補丁應用失敗，可能已應用或上下文不匹配"
           fi
           echo "==> Droidspaces SYSVIPC kABI 修复完成"
 
       - name: 🔧 Set gki_defconfig (设置编译配置)
         run: |
           cd kernel_workspace
+          
+          # 解決部分內核在 Kconfig 中限制 USER_NS 的問題，移除 config USER_NS 區塊內的所有 depends on 限制
+          if [ -f "./common/init/Kconfig" ]; then
+            echo "==> 正在解除 init/Kconfig 中對 USER_NS 的任何依賴限制..."
+            sed -i '/config USER_NS/,/config / { /depends on/d }' ./common/init/Kconfig
+          fi
+
           DEFCONFIG="./common/arch/arm64/configs/gki_defconfig"
 
           enable_config() {
@@ -363,6 +370,7 @@ jobs:
 
           # ==================== 用户自定义启用功能 ====================
           echo "==> 开始配置用户自定义选项 (USER_NS & Xbox Controller)..."
+          enable_config CONFIG_NAMESPACES
           enable_config CONFIG_USER_NS
           enable_config CONFIG_JOYSTICK_XPAD
           enable_config CONFIG_JOYSTICK_XPAD_FF
