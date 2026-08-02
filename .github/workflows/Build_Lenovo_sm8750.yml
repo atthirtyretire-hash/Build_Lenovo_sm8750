@@ -22,6 +22,12 @@ on:
         default: false
         type: boolean
 
+      enable_ntsync:
+        description: "添加 ntsync (NT 同步原语模拟驱动)"
+        required: true
+        default: false
+        type: boolean
+
 jobs:
   build:
     name: Build_${{ github.event.inputs.kernel_version }}
@@ -30,6 +36,7 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       KERNEL_VERSION: ${{ github.event.inputs.kernel_version }}
       ENABLE_DROIDSPACES: ${{ github.event.inputs.enable_droidspaces }}
+      ENABLE_NTSYNC: ${{ github.event.inputs.enable_ntsync }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -117,6 +124,9 @@ jobs:
           CACHE_VARIANT=""
           if [ "${{ env.ENABLE_DROIDSPACES }}" = "true" ]; then
             CACHE_VARIANT="${CACHE_VARIANT}-ds"
+          fi
+          if [ "${{ env.ENABLE_NTSYNC }}" = "true" ]; then
+            CACHE_VARIANT="${CACHE_VARIANT}-ntsync"
           fi
           echo "CACHE_VARIANT=$CACHE_VARIANT" >> $GITHUB_ENV
           echo "当前构建内核：${{ env.KERNEL_VERSION }}，缓存变体：${CACHE_VARIANT:-(无)}"
@@ -296,6 +306,31 @@ jobs:
           fi
           echo "==> Droidspaces SYSVIPC kABI 修复完成"
 
+      - name: 🔧 Apply ntsync patches (应用 ntsync 补丁)
+        if: ${{ env.ENABLE_NTSYNC == 'true' }}
+        working-directory: kernel_workspace/common
+        run: |
+          echo "==> 开始应用 ntsync 补丁..."
+          NTSYNC_BASE_PATCH="${GITHUB_WORKSPACE}/patch/ntsync_base.patch"
+          NTSYNC_COMPAT_PATCH="${GITHUB_WORKSPACE}/patch/ntsync_compat_6.6.patch"
+          
+          if [ ! -f "$NTSYNC_BASE_PATCH" ]; then
+            echo "::error::未找到 ntsync_base 补丁: $NTSYNC_BASE_PATCH"
+            exit 1
+          fi
+          if [ ! -f "$NTSYNC_COMPAT_PATCH" ]; then
+            echo "::error::未找到 ntsync_compat_6.6 补丁: $NTSYNC_COMPAT_PATCH"
+            exit 1
+          fi
+          
+          if ! patch -p1 --forward < "$NTSYNC_BASE_PATCH"; then
+            echo "::warning::ntsync_base 补丁应用失败，可能已应用或上下文不匹配"
+          fi
+          if ! patch -p1 --forward < "$NTSYNC_COMPAT_PATCH"; then
+            echo "::warning::ntsync_compat_6.6 补丁应用失败，可能已应用或上下文不匹配"
+          fi
+          echo "==> ntsync 补丁应用完成"
+
       - name: 🔧 Set gki_defconfig (设置编译配置)
         run: |
           cd kernel_workspace
@@ -366,6 +401,13 @@ jobs:
             disable_config CONFIG_ANDROID_PARANOID_NETWORK
 
             echo "==> Droidspaces 内核配置完成"
+          fi
+
+          # ==================== ntsync 内核配置 ====================
+          if [ "${{ env.ENABLE_NTSYNC }}" = "true" ]; then
+            echo "==> 开始配置 ntsync 内核选项..."
+            enable_config CONFIG_NTSYNC
+            echo "==> ntsync 内核配置完成"
           fi
 
           # ==================== 用户自定义启用功能 ====================
