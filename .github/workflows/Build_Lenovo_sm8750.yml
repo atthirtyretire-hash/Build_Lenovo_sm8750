@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       kernel_version:
-        description: "📝请选择要编译的版本（仅在不勾选上方选项时生效）"
+        description: "📝请选择要编译的版本"
         required: false
         type: choice
         options:
@@ -15,21 +15,11 @@ on:
           - '6.6.102'
           - '6.6.118'
         default: '6.6.89'
-        
-      custom_kernel_suffix:
-        description: "✏️ 自定义内核名称 (留空默认官核名称)"
-        required: false
-        default: ''
-      
-      custom_kernel_time:
-        description: "⏰ 自定义构建时间 (留空默认官核时间)"
-        required: false
-        default: ''
 
       enable_droidspaces:
         description: "添加 Droidspaces"
         required: true
-        default: true
+        default: false
         type: boolean
 
 jobs:
@@ -39,8 +29,6 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       KERNEL_VERSION: ${{ github.event.inputs.kernel_version }}
-      CUSTOM_KERNEL_SUFFIX: ${{ github.event.inputs.custom_kernel_suffix }}
-      CUSTOM_KERNEL_TIME: ${{ github.event.inputs.custom_kernel_time }}
       ENABLE_DROIDSPACES: ${{ github.event.inputs.enable_droidspaces }}
     steps:
       - uses: actions/checkout@v5
@@ -48,63 +36,36 @@ jobs:
           fetch-depth: 0
       - name: ⚙️ Set Kernel version config(设置对应内核版本配置文件)
         run: |
-          echo "KERNEL_TIME=${{ env.CUSTOM_KERNEL_TIME }}" >> $GITHUB_ENV
           case "${{ env.KERNEL_VERSION }}" in
             "6.6.56")
               echo "os_patch_level=2024-11" >> $GITHUB_ENV
+              echo "releases=TB322FC_1.1.11.120" >> $GITHUB_ENV
+              DEFAULT_SUFFIX='-android15-8-g38447e018c92-ab12829524-4k'
+              KERNEL_TIME='Thu Dec 19 17:58:46 UTC 2024'
               ;;
             "6.6.89")
               echo "os_patch_level=2025-06" >> $GITHUB_ENV
+              echo "releases=ColorOS_16_400_OPD_Boot" >> $GITHUB_ENV
+              DEFAULT_SUFFIX='-android15-8-g14220ae4ce65-ab13680582-4k'
+              KERNEL_TIME='Mon Jun 23 07:30:57 UTC 2025'
               ;;
             "6.6.102")
               echo "os_patch_level=2025-10" >> $GITHUB_ENV
+              echo "releases=TB322FC_1.5.10.096" >> $GITHUB_ENV
+              DEFAULT_SUFFIX='-android15-8-g06bc416365ef-ab14559830-4k'
+              KERNEL_TIME='Tue Dec 9 15:43:22 UTC 2025'
               ;;
             "6.6.118")
               echo "os_patch_level=2026-01" >> $GITHUB_ENV
+              echo "releases=TB322_ZUXOS_1.5.10.183" >> $GITHUB_ENV
+              DEFAULT_SUFFIX='-android15-8-g350f378eb496-ab14943902-4k'
+              KERNEL_TIME='Thu Feb 26 02:40:50 UTC 2026'
               ;;
           esac
-           if [ -z "${{ env.CUSTOM_KERNEL_SUFFIX }}" ]; then
-            case "${{ env.KERNEL_VERSION }}" in
-              "6.6.56")
-                DEFAULT_SUFFIX='-android15-8-g38447e018c92-ab12829524-4k'
-                ;;
-              "6.6.89")
-                DEFAULT_SUFFIX='-android15-8-g14220ae4ce65-ab13680582-4k'
-                ;;
-              "6.6.102")
-                DEFAULT_SUFFIX='-android15-8-g06bc416365ef-ab14559830-4k'
-                ;;
-              "6.6.118")
-                DEFAULT_SUFFIX='-android15-8-g350f378eb496-ab14943902-4k'
-                ;;
-            esac
-            echo "DEFAULT_SUFFIX=$DEFAULT_SUFFIX" >> $GITHUB_ENV
-            echo "使用原官核名称：$DEFAULT_SUFFIX"
-          else
-            echo "使用自定义名称: ${{ env.CUSTOM_KERNEL_SUFFIX }}"
-            echo "DEFAULT_SUFFIX=${{ env.CUSTOM_KERNEL_SUFFIX }}" >> $GITHUB_ENV
-          fi
-          if [ -z "${{ env.CUSTOM_KERNEL_TIME }}" ]; then
-            case "${{ env.KERNEL_VERSION }}" in
-              6.6.56)
-                KERNEL_TIME='Thu Dec 19 17:58:46 UTC 2024'
-                ;;
-              6.6.89)
-                KERNEL_TIME='Mon Jun 23 07:30:57 UTC 2025'
-                ;;
-              6.6.102)
-                KERNEL_TIME='Tue Dec 9 15:43:22 UTC 2025'
-                ;;
-              6.6.118)
-                KERNEL_TIME='Thu Feb 26 02:40:50 UTC 2026'
-                ;;
-            esac
-            echo "KERNEL_TIME=$KERNEL_TIME" >> $GITHUB_ENV
-            echo "使用官核时间：$KERNEL_TIME"
-          else
-            echo "使用自定义构建时间: ${{ env.CUSTOM_KERNEL_TIME }}"
-            echo "KERNEL_TIME=${{ env.CUSTOM_KERNEL_TIME }}" >> $GITHUB_ENV
-          fi
+          echo "DEFAULT_SUFFIX=$DEFAULT_SUFFIX" >> $GITHUB_ENV
+          echo "KERNEL_TIME=$KERNEL_TIME" >> $GITHUB_ENV
+          echo "使用原官核名称：$DEFAULT_SUFFIX"
+          echo "使用官核时间：$KERNEL_TIME"
 
       - name: 🛠 Install dependencies and Initialize repo and sync （安装环境依赖+初始化源码仓库及工具链）
         run: |
@@ -308,6 +269,18 @@ jobs:
             echo "未命中仓库缓存，也未找到公共缓存，将从空缓存开始构建"
           fi
 
+      - name: ⚙️ apply lz4 lz4 1.10.0 & zstd 1.5.7 Patch (应用lz4 1.10.0 & zstd 1.5.7补丁)
+        run: |
+          echo "正在添加lz4 1.10.0 & zstd 1.5.7补丁…"
+          cd kernel_workspace
+          git clone https://github.com/cctv18/oppo_oplus_realme_sm8750.git
+          cp ./oppo_oplus_realme_sm8750/zram_patch/001-lz4.patch ./common/
+          cp ./oppo_oplus_realme_sm8750/zram_patch/lz4armv8.S ./common/lib
+          cp ./oppo_oplus_realme_sm8750/zram_patch/002-zstd.patch ./common/
+          cd ./common
+          git apply -p1 < 001-lz4.patch || true
+          patch -p1 < 002-zstd.patch || true
+
       - name: 🔧 Apply Droidspaces SYSVIPC kABI fix (应用 Droidspaces SYSVIPC kABI 修复)
         if: ${{ env.ENABLE_DROIDSPACES == 'true' }}
         working-directory: kernel_workspace/common
@@ -323,62 +296,50 @@ jobs:
           fi
           echo "==> Droidspaces SYSVIPC kABI 修复完成"
 
-      - name: ⚙️ apply lz4 lz4 1.10.0 & zstd 1.5.7 Patch (应用lz4 1.10.0 & zstd 1.5.7补丁)
-        run: |
-          echo "正在添加lz4 1.10.0 & zstd 1.5.7补丁…"
-          cd kernel_workspace
-          git clone https://github.com/cctv18/oppo_oplus_realme_sm8750.git
-          cp ./oppo_oplus_realme_sm8750/zram_patch/001-lz4.patch ./common/
-          cp ./oppo_oplus_realme_sm8750/zram_patch/lz4armv8.S ./common/lib
-          cp ./oppo_oplus_realme_sm8750/zram_patch/002-zstd.patch ./common/
-          cd ./common
-          git apply -p1 < 001-lz4.patch || true
-          patch -p1 < 002-zstd.patch || true
-
       - name: 🔧 Set gki_defconfig (设置编译配置)
         run: |
           cd kernel_workspace
           DEFCONFIG="./common/arch/arm64/configs/gki_defconfig"
 
+          enable_config() {
+            local cfg="$1"
+            if grep -q "^${cfg}=y" "$DEFCONFIG"; then
+              echo "  已启用: $cfg"
+            elif grep -q "^# ${cfg} is not set" "$DEFCONFIG"; then
+              sed -i "s/^# ${cfg} is not set$/${cfg}=y/" "$DEFCONFIG"
+              echo "  已切换: $cfg"
+            else
+              echo "${cfg}=y" >> "$DEFCONFIG"
+              echo "  已添加: $cfg"
+            fi
+          }
+
+          enable_config_if_defined() {
+            local cfg="$1"
+            local name="${cfg#CONFIG_}"
+            if grep -RqsE --include='Kconfig*' "^[[:space:]]*(menuconfig|config)[[:space:]]+${name}$" .; then
+              enable_config "$cfg"
+            else
+              echo "  当前内核未定义: $cfg，跳过"
+            fi
+          }
+
+          disable_config() {
+            local cfg="$1"
+            if grep -q "^${cfg}=n" "$DEFCONFIG"; then
+              echo "  已禁用: $cfg"
+            elif grep -q "^${cfg}=y" "$DEFCONFIG"; then
+              sed -i "s/^${cfg}=y$/${cfg}=n/" "$DEFCONFIG"
+              echo "  已关闭: $cfg"
+            else
+              echo "# ${cfg} is not set" >> "$DEFCONFIG"
+              echo "  已添加并禁用: $cfg"
+            fi
+          }
+
           # ==================== Droidspaces 内核配置 ====================
           if [ "${{ env.ENABLE_DROIDSPACES }}" = "true" ]; then
             echo "==> 开始配置 Droidspaces 内核选项..."
-
-            enable_config() {
-              local cfg="$1"
-              if grep -q "^${cfg}=y" "$DEFCONFIG"; then
-                echo "  已启用: $cfg"
-              elif grep -q "^# ${cfg} is not set" "$DEFCONFIG"; then
-                sed -i "s/^# ${cfg} is not set$/${cfg}=y/" "$DEFCONFIG"
-                echo "  已切换: $cfg"
-              else
-                echo "${cfg}=y" >> "$DEFCONFIG"
-                echo "  已添加: $cfg"
-              fi
-            }
-
-            enable_config_if_defined() {
-              local cfg="$1"
-              local name="${cfg#CONFIG_}"
-              if grep -RqsE --include='Kconfig*' "^[[:space:]]*(menuconfig|config)[[:space:]]+${name}$" .; then
-                enable_config "$cfg"
-              else
-                echo "  当前内核未定义: $cfg，跳过"
-              fi
-            }
-
-            disable_config() {
-              local cfg="$1"
-              if grep -q "^${cfg}=n" "$DEFCONFIG"; then
-                echo "  已禁用: $cfg"
-              elif grep -q "^${cfg}=y" "$DEFCONFIG"; then
-                sed -i "s/^${cfg}=y$/${cfg}=n/" "$DEFCONFIG"
-                echo "  已关闭: $cfg"
-              else
-                echo "# ${cfg} is not set" >> "$DEFCONFIG"
-                echo "  已添加并禁用: $cfg"
-              fi
-            }
 
             enable_config CONFIG_SYSVIPC
             enable_config CONFIG_POSIX_MQUEUE
@@ -399,17 +360,19 @@ jobs:
 
             echo "==> Droidspaces 内核配置完成"
           fi
-          
-          echo "CONFIG_TMPFS_XATTR=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_TMPFS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
 
-          echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> ./common/arch/arm64/configs/gki_defconfig
+          # ==================== 用户自定义启用功能 ====================
+          echo "==> 开始配置用户自定义选项 (USER_NS & Xbox Controller)..."
+          enable_config CONFIG_USER_NS
+          enable_config CONFIG_JOYSTICK_XPAD
+          enable_config CONFIG_JOYSTICK_XPAD_FF
+          enable_config CONFIG_JOYSTICK_XPAD_LEDS
           
-          # ==================== 用户额外要求的核心配置 ====================
-          echo "CONFIG_NAMESPACES=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_JOYSTICK_XPAD_FF=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_JOYSTICK_XPAD_LEDS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TMPFS_XATTR=y" >> "$DEFCONFIG"
+          echo "CONFIG_TMPFS_POSIX_ACL=y" >> "$DEFCONFIG"
 
+          echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> "$DEFCONFIG"
+          
           sudo sed -i 's/check_defconfig//' ./common/build.config.gki
 
       - name: 🔧 Set Kernel name (写入内核名称)
